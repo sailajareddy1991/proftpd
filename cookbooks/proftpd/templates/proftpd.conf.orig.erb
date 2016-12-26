@@ -1,0 +1,259 @@
+ServerName "Xactware <NAME> SFTP Server"
+ServerIdent on "SFTP Server ready."
+ServerAdmin root@xactware.com
+ServerType standalone
+DeferWelcome off
+DefaultServer off
+CreateHome on
+#MasqueradeAddress 207.82.68.91
+UseIPv6 off
+#Listen on Port and Address
+Port <PORT>
+DefaultAddress <SERVER IP>
+SocketBindTight on
+TimeoutLogin 120
+TimeoutIdle 600
+TimeoutNoTransfer 900
+TimeoutStalled 3600
+IdentLookups off
+AllowOverride off
+ListOptions "" maxdepth 3
+ListOptions "" maxdirs 20
+ListOptions "" maxfiles 1000
+DefaultRoot ~
+DirFakeUser on ~
+DirFakeGroup on ~
+AuthPAM off
+AuthOrder mod_auth_file.c
+AuthUserFile /opt/proftpd/etc/sftpd.passwd
+AuthGroupFile /opt/proftpd/etc/sftpd.group
+#MaxLoginAttempts 2
+ 
+# Don't do reverse DNS lookups (hangs on DNS problems)
+UseReverseDNS off
+# Set the user and group that the server runs as
+User proftpd
+Group proftpd
+AccessGrantMsg "Please behave."
+# To prevent DoS attacks, set the maximum number of child processes
+# to 20. If you need to allow more than 20 concurrent connections
+# at once, simply increase this value. Note that this ONLY works
+# in standalone mode; in inetd mode you should use an inetd server
+# that allows you to limit maximum number of processes per service
+# (such as xinetd)
+MaxInstances 100
+# Disable sendfile by default since it breaks displaying the download speeds in
+# ftptop and ftpwho
+UseSendfile off
+# Define the log formats
+LogFormat default "%h %l %u %t \"%r\" %s %b"
+LogFormat auth "%v [%P] %h %t \"%r\" %s"
+<IfDefine SFTP>
+ LoadModule mod_sftp.c
+ ##
+ ## SFTP Config
+ SFTPEngine On
+ SFTPHostKey /etc/ssh/ssh_host_rsa_key
+ SFTPHostKey /etc/ssh/ssh_host_dsa_key
+ SFTPClientMatch "WS_FTP" channelWindowSize 1GB
+ SFTPCiphers aes256-ctr aes192-ctr aes128-ctr blowfish-ctr arcfour256 arcfour128 3des-ctr
+ SFTPDigests hmac-sha1 hmac-ripemd160
+ # Need to run 1.3.5 for IgnoreSFTPSetOwners
+ SFTPOptions IgnoreSFTPUploadPerms IgnoreSFTPSetPerms IgnoreSCPUploadPerms OldProtocolCompat
+ SFTPLog /var/log/proftpd/sftp.log
+ # enable for sftp debugging:
+ #TraceLog /var/log/proftpd/sftp-trace.log
+ #Trace scp:20 sftp:20 ssh2:20
+ # SSH-2.0-SharpSSH-1.1.1.13-JSCH-0.1.28
+ SFTPClientMatch ".*SharpSSH.*" channelWindowSize 256MB
+ # SSH-2.0-1.30
+ #SFTPClientMatch "1.30" channelWindowSize 256MB channelPacketSize 16KB
+ SFTPAuthorizedUserKeys file:~/.ssh/authorized_keys
+ ## End SFTP Config
+ ##
+</IfDefine>
+<IfDefine CASE>
+ LoadModule mod_case.c
+</IfDefine>
+<IfModule mod_facts.c>
+ FactsAdvertise off
+</IfModule>
+# Dynamic ban lists (http://www.proftpd.org/docs/contrib/mod_ban.html)
+# Enable this with PROFTPD_OPTIONS=-DDYNAMIC_BAN_LISTS in /etc/sysconfig/proftpd
+<IfDefine DYNAMIC_BAN_LISTS>
+ LoadModule mod_ban.c
+ BanEngine on
+ BanLog /var/log/proftpd/ban.log
+ BanTable /var/run/proftpd/ban.tab
+ # If the same client reaches the MaxLoginAttempts limit 2 times
+ # within 10 minutes, automatically add a ban for that client that
+ # will expire after one hour.
+ #BanOnEvent MaxLoginAttempts 2/00:10:00 01:00:00
+ BanOnEvent MaxLoginAttempts 5/00:10:00 01:00:00
+ # Allow the FTP admin to manually add/remove bans
+ BanControlsACLs all allow user ftpadm
+</IfDefine>
+# Global Config - config common to Server Config and all virtual hosts
+# See: http://www.proftpd.org/docs/howto/Vhost.html
+<Global>
+ <IfDefine CASE>
+ # Enable case-insensitivity
+ CaseEngine on
+ CaseIgnore on
+ </IfDefine>
+ # Umask 022 is a good standard umask to prevent new dirs and files
+ # from being group and world writable
+ Umask 0002 0002
+ <Limit ALL>
+ DenyAll
+ </Limit>
+ # Allow users to overwrite files and change permissions
+ AllowOverwrite yes
+ <Directory ~>
+ <Limit RNFR RNTO DIRS READ FSTAT LSTAT STAT REALPATH DELE RMD XRMD MKD XMKD STOR STOU OPEN SETSTAT LOCK MKD XMKD>
+ AllowAll
+ </Limit>
+ </Directory>
+ #ExtendedLog /var/log/proftpd/access.log WRITE,READ default
+ #ExtendedLog /var/log/proftpd/auth.log AUTH auth
+ #ExtendedLog syslog:info ALL default
+ ExtendedLog /var/log/proftpd/360value/access.log INFO,DIRS,READ,WRITE,MISC default
+ ExtendedLog /var/log/proftpd/360value/auth.log AUTH auth
+ WtmpLog off
+</Global>
+#<VirtualHost 172.23.49.160>
+# Port 52010
+# ServerName "Xactware AU SFTP Server"
+# DeferWelcome off
+# DefaultServer off
+# CreateHome on
+# TimeoutLogin 120
+# TimeoutIdle 600
+# TimeoutNoTransfer 900
+# TimeoutStalled 3600
+# IdentLookups off
+# AllowOverride off
+# ListOptions "" maxdepth 3
+# ListOptions "" maxdirs 20
+# ListOptions "" maxfiles 1000
+# DefaultRoot ~
+# DirFakeUser on ~
+# DirFakeGroup on ~
+# AuthPAM off
+# AuthOrder mod_auth_file.c
+# AuthUserFile /opt/proftpd/etc/sftpd.passwd
+# AuthGroupFile /opt/proftpd/etc/sftpd.group
+ #MaxLoginAttempts 2
+ 
+ # Set the user and group that the server runs as
+# User proftpd
+# Group proftpd
+# AccessGrantMsg "Please behave."
+ # Disable sendfile by default since it breaks displaying the download speeds in
+ # ftptop and ftpwho
+# UseSendfile off
+# <IfDefine CASE>
+ # Enable case-insensitivity
+# CaseEngine on
+# CaseIgnore on
+# </IfDefine>
+# <IfDefine SFTP>
+ ##
+ ## SFTP Config
+# SFTPEngine On
+# SFTPHostKey /etc/ssh/ssh_host_rsa_key_ukftp
+# SFTPHostKey /etc/ssh/ssh_host_dsa_key_ukftp
+# SFTPClientMatch "WS_FTP" channelWindowSize 1GB
+# SFTPCiphers aes256-ctr aes192-ctr aes128-ctr blowfish-ctr arcfour256 arcfour128 3des-ctr
+# SFTPDigests hmac-sha1 hmac-ripemd160
+ # Need to run 1.3.5 for IgnoreSFTPSetOwners
+# SFTPOptions IgnoreSFTPUploadPerms IgnoreSFTPSetPerms IgnoreSCPUploadPerms OldProtocolCompat
+# SFTPLog /var/log/proftpd/sftp.log
+ # enable for sftp debugging:
+ #TraceLog /var/log/proftpd/sftp-trace.log
+ #Trace scp:20 sftp:20 ssh2:20
+ # SSH-2.0-SharpSSH-1.1.1.13-JSCH-0.1.28
+# SFTPClientMatch ".*SharpSSH.*" channelWindowSize 256MB
+ # SSH-2.0-1.30
+ #SFTPClientMatch "1.30" channelWindowSize 256MB channelPacketSize 16KB
+# SFTPAuthorizedUserKeys file:~/.ssh/authorized_keys
+ ## End SFTP Config
+ ##
+# </IfDefine>
+ # Umask 022 is a good standard umask to prevent new dirs and files
+ # from being group and world writable
+# Umask 0002 0002
+# <Limit ALL>
+# DenyAll
+# </Limit>
+ # Allow users to overwrite files and change permissions
+# AllowOverwrite yes
+# <Directory ~>
+# <Limit RNFR RNTO DIRS READ FSTAT LSTAT STAT REALPATH DELE RMD XRMD MKD XMKD STOR STOU OPEN SETSTAT LOCK MKD XMKD>
+# AllowAll
+# </Limit>
+# </Directory>
+ #ExtendedLog syslog:info ALL default
+# ExtendedLog /var/log/proftpd/ftp.g1.xactanalysis.com/access.log INFO,DIRS,READ,WRITE,MISC default
+# ExtendedLog /var/log/proftpd/ftp.g1.xactanalysis.com/auth.log AUTH auth
+# WtmpLog off
+#</VirtualHost>
+#<VirtualHost 172.23.49.160>
+# Port 21
+# PassivePorts 15000 25000
+# ServerName "Welcome to Xactware's AU FTP service."
+# DeferWelcome off
+# DefaultServer off
+# CreateHome on
+# TimeoutLogin 300
+# TimeoutIdle 1800
+# TimeoutNoTransfer 900
+# TimeoutStalled 3600
+# IdentLookups off
+# AllowOverride off
+# ListOptions "" maxdepth 3
+# ListOptions "" maxdirs 20
+# ListOptions "" maxfiles 1000
+# DefaultRoot ~
+# DirFakeUser on ~
+# DirFakeGroup on ~
+# AuthPAM off
+# AuthOrder mod_auth_file.c
+# AuthUserFile /opt/proftpd/etc/sftpd.passwd
+# AuthGroupFile /opt/proftpd/etc/sftpd.group
+ #MaxLoginAttempts 2
+ 
+ # Set the user and group that the server runs as
+# User proftpd
+# Group proftpd
+# AccessGrantMsg "Please behave."
+ # Disable sendfile by default since it breaks displaying the download speeds in
+ # ftptop and ftpwho
+# UseSendfile off
+# <IfDefine CASE>
+ # Enable case-insensitivity
+# CaseEngine on
+# CaseIgnore on
+# </IfDefine>
+ # Umask 022 is a good standard umask to prevent new dirs and files
+ # from being group and world writable
+# Umask 0002 0002
+# <Limit LOGIN>
+# AllowUser test
+# DenyAll
+# </Limit>
+# <Limit ALL>
+# DenyAll
+# </Limit>
+ # Allow users to overwrite files and change permissions
+# AllowOverwrite yes
+# <Directory ~>
+# <Limit ALL>
+# AllowAll
+# </Limit>
+# </Directory>
+ #ExtendedLog syslog:info ALL default
+# ExtendedLog /var/log/proftpd/ftp.g1.xactanalysis.com/access.log INFO,DIRS,READ,WRITE,MISC default
+# ExtendedLog /var/log/proftpd/ftp.g1.xactanalysis.com/auth.log AUTH auth
+# WtmpLog off
+#</VirtualHost>

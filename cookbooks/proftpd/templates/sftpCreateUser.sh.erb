@@ -1,0 +1,226 @@
+#!/bin/sh
+ 
+SFTP_HOME='/sftp/home'
+SFTP_BASE='/opt/proftpd'
+SFTP_UID=<UID>
+SFTP_PASSWD_FILE="${SFTP_BASE}/etc/sftpd.passwd"
+SFTP_GROUP_FILE="${SFTP_BASE}/etc/sftpd.group"
+SFTP_ACCOUNT_FILE="${SFTP_BASE}/etc/<prefix>_accounts.txt"
+FTPASSWD_CMD='/opt/proftpd/bin/ftpasswd'
+ 
+function notfound {
+   CMD=${1}
+   MSG=${2}
+   RETVAL=${3}
+   echo -e "${CMD} is required but cannot be found:\n${MSG}"
+   exit ${3}
+}
+ 
+ 
+AWK='awk'
+if ! AWK_CMD=$(which ${AWK} 2>&1)
+then
+   notfound "${AWK}" "${AWK_CMD}" $?
+fi
+ 
+CAT='cat'
+if ! CAT_CMD=$(which ${CAT} 2>&1)
+then
+   notfound "${CAT}" "${CAT_CMD}" $?
+fi
+ 
+CHOWN='chown'
+if ! CHOWN_CMD=$(which ${CHOWN} 2>&1)
+then
+   notfound "${CHOWN}" "${CHOWN_CMD}" $?
+fi
+ 
+DATE='date'
+if ! DATE_CMD=$(which ${DATE} 2>&1)
+then
+   notfound "${DATE}" "${DATE_CMD}" $?
+fi
+ 
+MKDIR='mkdir'
+if ! MKDIR_CMD=$(which ${MKDIR} 2>&1)
+then
+   notfound "${MKDIR}" "${MKDIR_CMD}" $?
+fi
+ 
+MKPASSWD='mkpasswd'
+if ! MKPASSWD_CMD=$(which ${MKPASSWD} 2>&1)
+then
+   notfound "${MKPASSWD}" "${MKPASSWD_CMD}" $?
+fi
+ 
+SORT='sort'
+if ! SORT_CMD=$(which ${SORT} 2>&1)
+then
+   notfound "${SORT}" "${SORT_CMD}" $?
+fi
+ 
+TAIL='tail'
+if ! TAIL_CMD=$(which ${TAIL} 2>&1)
+then
+   notfound "${TAIL}" "${TAIL_CMD}" $?
+fi
+ 
+UNIQ='uniq'
+if ! UNIQ_CMD=$(which ${UNIQ} 2>&1)
+then
+   notfound "${UNIQ}" "${UNIQ_CMD}" $?
+fi
+ 
+ 
+function usage {
+   echo "${0} <USERNAME> <COMMENT> <PASSWORD>"
+   echo
+   echo "Arguments are optional, user will be prompted"
+   echo "If args contain spaces or special characters, please"
+   echo "enclose in quotes:"
+   echo
+   echo "${0} username 'My Comment' 'P@\$\$w05D'"
+   exit
+}
+ 
+function read_username {
+   while [ -z "${USERNAME}" ]
+   do
+      clear
+      echo "############################"
+      echo "Provide Username"
+      echo "############################"
+      read USERNAME
+   done
+}
+ 
+function read_comment {
+   while [ -z "${COMMENT}" ]
+   do
+      clear
+      echo "############################"
+      echo "Provide Comment"
+      echo "############################"
+      read COMMENT
+   done
+}
+ 
+function read_password {
+   while [ -z "${PASSWORD}" ]
+   do
+      clear
+      echo "############################"
+      echo "Provide Password"
+      echo "############################"
+      read PASSWORD
+   done
+}
+ 
+function get_next_uid {
+   if [ ! -f "${SFTP_PASSWD_FILE}" ]
+   then
+      echo "The passwd file ${SFTP_PASSWD_FILE} does NOT exist. Cannot continue!"
+      exit 1
+   else
+      if RESULT=$(${CAT_CMD} ${SFTP_PASSWD_FILE} | ${AWK_CMD} -F':' '{print$4}' | ${SORT_CMD} -n | ${UNIQ_CMD} | ${TAIL_CMD} -n1 2>&1)
+      then
+         if [[ "${RESULT}" =~ ^[0-9]+$ ]]
+         then
+            SFTP_GID=$((${RESULT}+1))
+         else
+            echo "Cannot get UID. '${RESULT}' is not a number."
+        echo "This may be the first user, UID is set to 2000."
+        SFTP_GID=2000
+         fi
+      else
+          echo "Cannot get UID. Something went wrong:";
+          echo "${RESULT}"
+          exit 1
+      fi
+   fi
+}
+ 
+if [ $# -le 0 ]
+then
+   read_username
+   read_comment
+   read_password
+elif [ $# -eq 3 ]
+then
+    USERNAME="${1}"
+    COMMENT="${2}"
+    PASSWORD="${3}"
+elif [ $# -eq 2 ]
+then
+    USERNAME="${1}"
+    COMMENT="${2}"
+    read_password
+elif [ $# -eq 1 ]
+then
+    REGEX='^-+(h|help)$'
+    shopt -s nocasematch
+    [[ "$1" =~ ${REGEX} ]] && usage
+    USERNAME="$1"
+    read_comment
+    read_password
+else
+   usage
+fi
+ 
+get_next_uid
+ 
+REGEX='^GEN|GENERATE$'
+shopt -s nocasematch
+if [[ "${PASSWORD}" =~ ${REGEX} ]]
+then
+   #Generate Password.  May or may not be used below.
+   echo "Generating password..."
+   if PASSWORD=$(${MKPASSWD_CMD} -l 8 -s 1 2>&1)
+   then
+      echo "Done"
+   else
+      echo -e "Cannot generate password:\n${PASSWORD}"
+      exit 1
+   fi
+fi
+shopt -u nocasematch
+ 
+CREATECMD="${FTPASSWD_CMD} --passwd --name '${USERNAME}' --uid=${SFTP_UID} --gid=${SFTP_GID} --home='${SFTP_HOME}/${USERNAME}' --shell=/sbin/nologin --file ${SFTP_PASSWD_FILE} --gecos '${COMMENT}' --stdin <<< '${PASSWORD}' && ${FTPASSWD_CMD} --group --name 'ftp-${USERNAME}' --gid=${SFTP_GID} --file ${SFTP_GROUP_FILE}"
+ 
+#Debug
+#echo "$CREATECMD"
+ 
+if ! RESULT=$(eval ${CREATECMD} 2>&1)
+then
+   RETVAL=$?
+   echo -e "Cannot create account:\n${RESULT}"
+   exit ${RETVAL}
+fi
+ 
+#Build directory structure
+if ! RESULT=$(${MKDIR_CMD} -v -m 700 -p ${SFTP_HOME}/${USERNAME}/{IN,OUT} 2>&1)
+then
+   RETVAL=$?
+   echo -e "Cannot prepare directories:\n${RESULT}"
+   exit ${RETVAL}
+fi
+ 
+#if ! RESULT=$(${CHOWN_CMD} -R ${SFTP_UID}:${SFTP_UID} ${SFTP_HOME}/${USERNAME} 2>&1)
+#then
+#   RETVAL=$?
+#   echo -e "Cannot chown:\n${RESULT}"
+#   exit ${RETVAL}
+#fi
+ 
+DATE=$(${DATE_CMD} +%D-%H:%M)
+ 
+echo -e "\n" | tee -a ${SFTP_ACCOUNT_FILE}
+echo "Your new SFTP account information:"
+echo "####################################" | tee -a ${SFTP_ACCOUNT_FILE}
+echo "${DATE}" | tee -a ${SFTP_ACCOUNT_FILE}
+echo "PROD IP: (<desired IP>)" | tee -a ${SFTP_ACCOUNT_FILE}
+#echo "DR IP: (63.235.127.102)" | tee -a ${SFTP_ACCOUNT_FILE}
+echo "Comment: ${COMMENT}" | tee -a ${SFTP_ACCOUNT_FILE}
+echo "Username: ${USERNAME}" | tee -a ${SFTP_ACCOUNT_FILE}
+echo "Password For ${USERNAME}: ${PASSWORD}" | tee -a ${SFTP_ACCOUNT_FILE}
+echo "####################################" | tee -a ${SFTP_ACCOUNT_FILE}
